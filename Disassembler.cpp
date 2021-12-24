@@ -2,6 +2,24 @@
 #include <fstream>
 #include <cstdint>
 
+static int Parity(int x, int size)
+{
+
+	int i;
+	int p = 0;
+
+	x = (x & ((1 << size) - 1));
+
+	for (i = 0; i < size; i++)
+	{
+		if (x & 0x1) p++;
+		x = x >> 1;
+	}
+
+	return (0 == (p & 0x1));
+
+}
+
 int Dissassemble8080p(unsigned char* codeBuffer, int pc)
 {
 	unsigned char* code = &codeBuffer[pc];
@@ -326,130 +344,306 @@ int Eumulate8080p(State8080* state)
 	{
 	case 0x00: break; 										//NOP
 
-	case 0x01: state->c = opcode[1];		//LXI 	B, word
+	case 0x01:
+	{
+		state->c = opcode[1];		//LXI 	B, word
 		state->b = opcode[2];
-		state->pc += 2;					//Advance program counter 2 more bytes
+		state->pc += 2;
+	}//Advance program counter 2 more bytes
 		break;
 
-	case 0x02:                             // STAX B - Stores register pair BC in accumulator
+	case 0x02:  
+	{// STAX B - Stores register pair BC in accumulator
 		uint16_t register_pair_BC = (state->b << 8) | (state->c);
 		state->a = register_pair_BC;
+	}
 		break;
-	case 0x03:   // INX B - Increments register pair BC by 1. The most significant byte of the result is stored in register B and the least significant byte is stored in register C.
+	case 0x03: 
+	{// INX B - Increments register pair BC by 1. The most significant byte of the result is stored in register B and the least significant byte is stored in register C.
 		uint16_t register_pair_BC = (state->b << 8) | (state->c);
 
 		register_pair_BC += 1;
 
-		state->b = register_pair_BC & 0xFF00; // Register B gets MS byte
-		state->c = register_pair_BC & 0x00FF; // Register C gets LS byte
-		break;
-	case 0x04: // INR B - Increment register B by 1 and store the result in register B. Set Z, S, P, AC flags.
+		state->b = (register_pair_BC & 0xFF00) >> 8; // Register B gets MS byte
+		state->c = register_pair_BC & 0xFF; // Register C gets LS byte
+	}
+	break;
+
+	case 0x04: 
+	{// INR B - Increment register B by 1 and store the result in register B. Set Z, S, P, AC flags.
 		state->b = state->b + 1;
 		state->cc.z = ((state->b) == 0);
 		state->cc.s = ((state->b & 0x80) == 0x80);
-		state->cc.p = parity(state->b, 8);
+		state->cc.p = Parity(state->b, 8);
 		state->cc.ac = ((state->b & 0xf) == 0xf);
+	}
 		break;
-	case 0x05: // DCR B - Decrement register B by 1 and store the result in register B. Set Z, S, P, AC flags.
+	case 0x05:
+	{// DCR B - Decrement register B by 1 and store the result in register B. Set Z, S, P, AC flags.
 		state->b = state->b - 1;
 		state->cc.z = ((state->b) == 0);
 		state->cc.s = ((state->b & 0x80) == 0x80);
-		state->cc.p = parity(state->b, 8);
+		state->cc.p = Parity(state->b, 8);
 		state->cc.ac = ((state->b & 0xf) == 0x0);
+	}
 		break;
-	case 0x06: //MVI B, D8 - Move immediate 8 bit value into register B. Instruction length: 2 bytes
+	case 0x06: 
+	{//MVI B, D8 - Move immediate 8 bit value into register B. Instruction length: 2 bytes
 		uint16_t immediate_value = (opcode[2] << 8) | (opcode[1]);
 		state->b = immediate_value;
 		state->pc++; // increment program counter by one since this instruction is 2 bytes long
+	}
 		break;
 
 	// Instruction 0x07 (RLC) not implemented yet
 	// Instruction 0x08 does nothing
 
-	case 0x09: // DAD B - Add register pair HL and register pair BC. Store the result in register pair HL. Set carry flag.
+	case 0x09: 
+	{// DAD B - Add register pair HL and register pair BC. Store the result in register pair HL. Set carry flag.
 		uint32_t register_pair_HL = (state->h << 8) | (state->l);
 		uint32_t register_pair_BC = (state->b << 8) | (state->c);
 
 		register_pair_HL = register_pair_HL + register_pair_BC;
 
-		state->h = register_pair_HL & 0xFFFF0000; // h  gets most significant byte
-		state->l = register_pair_HL & 0x0000FFFF; // l gets least significant byte
-		break;
-	case 0x2f:														//NOT
+		state->h = (register_pair_HL & 0xFF00) >> 8; // h  gets most significant byte
+		state->l = register_pair_HL & 0xFF;          // l gets least significant byte
+
+	}
+    break;
+
+	case 0x0A:
+	{// LDAX B - Register pair BC is stored in Accumulator
+
+		uint16_t register_pair_BC = (state->b << 8) | (state->c);
+
+		state->a = register_pair_BC;
+
+	}
+	break;
+
+	case 0x0B:
+	{// DCX B - Decrement register pair BC by one. The MS byte of the result is stored in register B. The LS byte of the result is stored in register C.
+
+		uint16_t register_pair_BC = (state->b << 8) | (state->c);
+
+		register_pair_BC = register_pair_BC - 1;
+
+		uint8_t MostSignificantByte = (register_pair_BC & 0xFF00) >> 8;
+		uint8_t LeastSignificantByte = register_pair_BC & 0xFF;
+
+		state->b = MostSignificantByte;
+		state->c = LeastSignificantByte;
+
+	}
+	break;
+
+	case 0x0C:
+	{ // INR C - Increment Register C by 1. Store the result in register C. Set Z,S,P, AC flags.
+		state->c = state->c - 1;
+
+		state->cc.z = ((state->c) == 0);
+		state->cc.s = ((state->c & 0x80) == 0x80);
+		state->cc.p = Parity(state->c, 8);
+		state->cc.ac = ((state->c & 0xf) == 0xf);
+		
+	}
+	break;
+
+	case 0x0D:
+	{ // DCR C - Decrement Register C by 1. Store the result in register C. Set Z,S,P, AC flags.
+		state->c = state->c - 1;
+
+		state->cc.z = ((state->c) == 0);
+		state->cc.s = ((state->c & 0x80) == 0x80);
+		state->cc.p = Parity(state->c, 8);
+		state->cc.ac = ((state->c & 0xf) == 0x0);
+
+	}
+	break;
+
+	case 0x0E:
+	{ // MVI C, D8 - Store immediate 8 bit data in register C. Instruction length: 2 bytes
+
+		state->c = opcode[1];
+
+		state->pc++;
+
+	}
+	break;
+	// 0x0f not implemented yet
+	// 0x10 does nothing
+
+	case 0x11:
+	{ // LXI, D, D16 - Store byte 3 in register D. Store byte 2 in register E. Instruction length: 3 bytes
+
+		state->d = opcode[2];
+		state->e = opcode[1];
+
+
+		state->pc += 2;
+
+	}
+	break;
+
+	case 0x12:
+	{ // STAX D - Store Accumulator in memory at memory location register pair DE.
+
+		uint16_t register_pair_DE = (state->d << 8) | (state->e);
+
+		state->memory[register_pair_DE] = state->a;
+
+	}
+	break;
+
+	case 0x13:
+	{ // INX D - Increment register pair DE. Store the most significant byte of the result in register D. Store the least significant byte of the result in register E.
+
+		uint16_t register_pair_DE = (state->d << 8) | (state->e);
+
+		register_pair_DE += 1;
+
+		uint8_t MostSignificantByte = (register_pair_DE & 0xFF00) >> 8;
+		uint8_t LeastSignificantByte = register_pair_DE & 0xFF;
+
+		state->d = MostSignificantByte;
+		state->e = LeastSignificantByte;
+
+	}
+	break;
+
+	case 0x14:
+	{ // INR D - Increment register D by 1 and store the result in register D. Set Z,S,P,AC flags.
+
+		state->d += 1;
+
+		state->cc.z = ((state->d) == 0);
+		state->cc.s = ((state->d & 0x80) == 0x80);
+		state->cc.p = Parity(state->d, 8);
+		state->cc.ac = ((state->d & 0xf) == 0xf);
+
+
+	}
+	break;
+
+	case 0x15:
+	{ // DCR D - Decrement register D by 1 and store the result in register D. Set Z,S,P,AC flags.
+
+		state->d -= 1;
+
+		state->cc.z = ((state->d) == 0);
+		state->cc.s = ((state->d & 0x80) == 0x80);
+		state->cc.p = Parity(state->d, 8);
+		state->cc.ac = ((state->d & 0xf) == 0x0);
+
+
+	}
+	break;
+
+	case 0x16:
+	{ // MVI D, D8. Instruction length: 2 bytes
+
+		state->d = opcode[1];
+		state->pc++;
+
+	}
+	break;
+
+	// 0x17 - RAL - not implemented yet
+	// 0x18 - does nothing
+	case 0x2f:		
+	{//NOT
 		state->a = ~state->a;
+	}
 		break;
 
-	case 0x41: state->b = state->c; 	//MOV 	B, C
+	case 0x41: {state->b = state->c; }	//MOV 	B, C
 		break;
-	case 0x42: state->b = state->d; 	//MOV 	B, D
+	case 0x42: {state->b = state->d; } 	//MOV 	B, D
 		break;
-	case 0x43: state->b = state->e; 	//MOV 	B, E
+	case 0x43: {state->b = state->e; }	//MOV 	B, E
 		break;
 
-	case 0x81: 													//ADD 	C
-		uint16_t answer = (uint16_t)state->a + (uint16_t)state->c;
+	case 0x81: 												//ADD 	C
+	{	uint16_t answer = (uint16_t)state->a + (uint16_t)state->c;
 		state->cc.z = ((answer & 0xff) == 0);
 		state->cc.s = ((answer & 0x80) != 0);
 		state->cc.cy = (answer > 0xff);
-		state->cc.p = Parity(answer & 0xff);
+		state->cc.p = Parity(answer & 0xff, 8);
 		state->a = answer & 0xff;
-		break;
+	}
+	break;
 
-	case 0x86:														//ADD 	M
+	case 0x86:	// ADD M
+	{                      
 		uint16_t offset = (state->h << 8) | (state->l);
 		uint16_t answer = (uint16_t)state->a + state->memory[offset];
 		state->cc.z = ((answer & 0xff));
 		state->cc.s = ((answer & 0x80));
 		state->cc.cy = (answer > 0xff);
-		state->cc.p = Parity(answer & 0xff);
+		state->cc.p = Parity(answer & 0xff, 8);
 		state->a = answer & 0xff;
-		break;
+	}
+	break;
 
-	case 0xc2: 													//JNZ adress
+	case 0xc2: 	
+	{       //JNZ adress
 		if (0 == state->cc.z)
 			state->pc = (opcode[2] << 8) | opcode[1];
 		else
 			state->pc += 2;
-		break;
+	}
+	break;
 
-	case 0xc3: 													//JMP adress
+	case 0xc3: 		
+	{     //JMP adress
 		state->pc = (opcode[2] << 8) | opcode[1];
-		break;
+	}
+	break;
 
-	case 0xc6:														//ADI 	byte
+	case 0xc6:		
+	{//ADI 	byte
 		uint16_t answer = (uint16_t)state->a + (uint16_t)opcode[1];
 		state->cc.z = ((answer & 0xff) == 0);
 		state->cc.s = ((answer & 0x80) != 0);
 		state->cc.cy = (answer > 0xff);
-		state->cc.p = Parity(answer & 0xff);
+		state->cc.p = Parity(answer & 0xff, 8);
 		state->a = answer & 0xff;
+	}
 		break;
-	case 0x9c: 													//RET
+	case 0x9c: 		
+	{//RET
 		state->pc = state->memory[state->sp] | (state->memory[state->sp + 1] << 8);
 		state->sp += 2;
+	}
 		break;
 
-	case 0xcd: 													//CALL address
+	case 0xcd: 			
+	{//CALL address
 		uint16_t ret = state->pc + 2;
 		state->memory[state->sp - 1] = (ret >> 8) & 0xff;
 		state->memory[state->sp - 2] = (ret & 0xff);
 		state->sp = state->sp - 2;
 		state->pc = (opcode[2] << 8) | opcode[1];
+	}
 		break;
 
-	case 0xe6:														//ANI byte
-		uint8_t x = state -> & opcode[1];
+	case 0xe6:	
+	{//ANI byte
+		uint8_t x = state->a & opcode[1];
 		state->cc.z = (x == 0);
 		state->cc.s = (0x80 == (x & 0x80));
 		state->cc.p = Parity(x, 8);
 		state->cc.cy = 0;
 		state->a = x;
 		state->pc++;
+	}
 		break;
 
 	}
 
 	state->pc += 1;
+
+	return 0;
 }
 
 int main()
